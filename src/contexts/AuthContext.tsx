@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from './supabaseClient';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface User {
   id: string;
@@ -11,8 +13,8 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: () => void;
-  logout: () => void;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
   setUserRegistered: () => void;
 }
 
@@ -35,36 +37,77 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is stored in localStorage
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setIsLoading(false);
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        handleUserSession(session.user);
+      }
+      setIsLoading(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        handleUserSession(session.user);
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = () => {
-    // Mock Google OAuth implementation
-    // In production, this would integrate with Google OAuth2
-    const mockUser = {
-      id: 'google_' + Date.now(),
-      email: 'user@example.com',
-      name: 'Test User',
-      picture: 'https://via.placeholder.com/150',
+  const handleUserSession = async (supabaseUser: SupabaseUser) => {
+    const userData: User = {
+      id: supabaseUser.id,
+      email: supabaseUser.email || '',
+      name: supabaseUser.user_metadata?.full_name || supabaseUser.user_metadata?.name || 'User',
+      picture: supabaseUser.user_metadata?.avatar_url || supabaseUser.user_metadata?.picture,
       isRegistered: false
     };
-    
-    setUser(mockUser);
-    localStorage.setItem('user', JSON.stringify(mockUser));
-    
-    // Check if user is already registered
-    checkRegistrationStatus(mockUser.email);
+
+    // Check if user is registered
+    const isRegistered = await checkRegistrationStatus(userData.email);
+    userData.isRegistered = isRegistered;
+
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('user');
-    sessionStorage.clear();
+  const login = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
+      });
+      
+      if (error) {
+        console.error('Error logging in:', error.message);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error logging out:', error.message);
+      }
+      setUser(null);
+      localStorage.removeItem('user');
+      sessionStorage.clear();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const setUserRegistered = () => {
@@ -76,17 +119,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const checkRegistrationStatus = async (email: string) => {
+  const checkRegistrationStatus = async (email: string): Promise<boolean> => {
     try {
-      // Mock API call to check registration
-      const isRegistered = sessionStorage.getItem('isRegistered') === 'true';
-      if (user && isRegistered) {
-        const updatedUser = { ...user, isRegistered: true };
-        setUser(updatedUser);
-        localStorage.setItem('user', JSON.stringify(updatedUser));
+      const { data, error } = await supabase
+        .from('registrations')
+        .select('email')
+        .eq('email', email)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking registration:', error);
+        return false;
       }
+
+      return !!data;
     } catch (error) {
       console.error('Error checking registration status:', error);
+      return false;
     }
   };
 

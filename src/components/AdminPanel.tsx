@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from '../contexts/supabaseClient';
 import { 
   Settings, 
   Users, 
@@ -17,6 +18,10 @@ import {
 
 const AdminPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
+  const [results, setResults] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const tabs = [
     { id: 'overview', name: 'Overview', icon: BarChart3 },
@@ -75,6 +80,115 @@ const AdminPanel: React.FC = () => {
     }
   ];
 
+  const loadResults = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('test_results')
+        .select(`
+          *,
+          registrations!inner(first_name, last_name)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading results:', error);
+        return;
+      }
+
+      // Group results by user and test session
+      const groupedResults: { [key: string]: any } = {};
+      
+      data?.forEach((result: any) => {
+        const key = `${result.email}_${result.test_time}`;
+        if (!groupedResults[key]) {
+          groupedResults[key] = {
+            email: result.email,
+            name: `${result.registrations.first_name} ${result.registrations.last_name}`,
+            testDate: new Date(result.test_time).toLocaleDateString(),
+            duration: `${Math.round(result.duration_seconds / 60)} min`,
+            subjects: {}
+          };
+        }
+        groupedResults[key].subjects[result.subject] = result.score;
+      });
+
+      // Calculate total scores
+      const finalResults = Object.values(groupedResults).map((result: any) => {
+        const scores = Object.values(result.subjects) as number[];
+        const totalScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+        return { ...result, totalScore, ...result.subjects };
+      });
+
+      setResults(finalResults);
+    } catch (error) {
+      console.error('Error loading results:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('registrations')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading users:', error);
+        return;
+      }
+
+      const formattedUsers = data?.map((user: any) => ({
+        id: user.id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        registrationDate: new Date(user.created_at).toLocaleDateString(),
+        status: 'Registered',
+        testsTaken: 0 // Would need to calculate from test_results
+      })) || [];
+
+      setUsers(formattedUsers);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadQuestions = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading questions:', error);
+        return;
+      }
+
+      setQuestions(data || []);
+    } catch (error) {
+      console.error('Error loading questions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load data when tab changes
+  React.useEffect(() => {
+    if (activeTab === 'results') {
+      loadResults();
+    } else if (activeTab === 'users') {
+      loadUsers();
+    } else if (activeTab === 'questions') {
+      loadQuestions();
+    }
+  }, [activeTab]);
   const mockUsers = [
     {
       id: 1,
@@ -193,7 +307,7 @@ const AdminPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {mockQuestions.map((question) => (
+              {(questions.length > 0 ? questions : mockQuestions).map((question) => (
                 <tr key={question.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
@@ -242,6 +356,13 @@ const AdminPanel: React.FC = () => {
         </button>
       </div>
 
+      {loading && (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mx-auto mb-2"></div>
+          <p className="text-gray-600">Loading results...</p>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -257,8 +378,8 @@ const AdminPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {mockResults.map((result) => (
-                <tr key={result.id} className="hover:bg-gray-50">
+              {(results.length > 0 ? results : mockResults).map((result, index) => (
+                <tr key={result.id || index} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div>
                       <p className="font-semibold text-gray-900">{result.name}</p>
@@ -267,13 +388,13 @@ const AdminPanel: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-gray-900">{result.testDate}</td>
                   <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{result.mathScore}%</span>
+                    <span className="font-semibold text-gray-900">{result.Math || result.mathScore || 'N/A'}%</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{result.scienceScore}%</span>
+                    <span className="font-semibold text-gray-900">{result.Science || result.scienceScore || 'N/A'}%</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{result.reasoningScore}%</span>
+                    <span className="font-semibold text-gray-900">{result.Reasoning || result.reasoningScore || 'N/A'}%</span>
                   </td>
                   <td className="px-6 py-4">
                     <span className={`font-semibold px-3 py-1 rounded-full text-sm ${
@@ -305,6 +426,13 @@ const AdminPanel: React.FC = () => {
         </button>
       </div>
 
+      {loading && (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mx-auto mb-2"></div>
+          <p className="text-gray-600">Loading users...</p>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -318,7 +446,7 @@ const AdminPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {mockUsers.map((user) => (
+              {(users.length > 0 ? users : mockUsers).map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../contexts/supabaseClient';
 import { User, Mail, Phone, MapPin, GraduationCap, Calendar, Building, Save } from 'lucide-react';
 
 const Registration: React.FC = () => {
@@ -40,19 +41,40 @@ const Registration: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Mock API call to save registration data
-      console.log('Submitting registration:', formData);
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // In production, this would be an API call
-      // await api.registerUser(formData);
+      // Save registration data to Supabase
+      const { error } = await supabase
+        .from('registrations')
+        .insert([
+          {
+            email: formData.email,
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            phone: formData.phone,
+            date_of_birth: formData.dateOfBirth,
+            gender: formData.gender,
+            address: formData.address,
+            city: formData.city,
+            state: formData.state,
+            zip_code: formData.zipCode,
+            country: formData.country,
+            education: formData.education,
+            institution: formData.institution,
+            field_of_study: formData.fieldOfStudy,
+            experience: formData.experience,
+            hear_about_us: formData.hearAboutUs
+          }
+        ]);
+
+      if (error) {
+        console.error('Registration error:', error);
+        throw error;
+      }
       
       setUserRegistered();
       navigate('/dashboard');
     } catch (error) {
       console.error('Registration error:', error);
+      alert('Registration failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

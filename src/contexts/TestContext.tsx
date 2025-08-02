@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { supabase } from './supabaseClient';
+import { useAuth } from './AuthContext';
 
 interface Question {
   id: string;
@@ -107,6 +109,7 @@ const mockQuestions: Question[] = [
 ];
 
 export const TestProvider: React.FC<TestProviderProps> = ({ children }) => {
+  const { user } = useAuth();
   const [testState, setTestState] = useState<TestState>({
     questions: [],
     answers: [],
@@ -117,11 +120,154 @@ export const TestProvider: React.FC<TestProviderProps> = ({ children }) => {
   });
 
   const startTest = () => {
-    // Shuffle and select questions (for demo, using all mock questions)
-    const shuffledQuestions = [...mockQuestions].sort(() => Math.random() - 0.5);
-    const selectedQuestions = shuffledQuestions.slice(0, 6); // 6 questions for demo
+    // Load questions from Supabase or use mock data for demo
+    loadQuestions();
+  };
+
+  const loadQuestions = async () => {
+    try {
+      // Try to load questions from Supabase
+      const { data: questions, error } = await supabase
+        .from('questions')
+        .select('*')
+        .limit(60); // 20 per subject ideally
+
+      let selectedQuestions = mockQuestions; // Fallback to mock data
+      
+      if (!error && questions && questions.length > 0) {
+        // Convert Supabase questions to our format
+        selectedQuestions = questions.map(q => ({
+          id: q.id.toString(),
+          subject: q.subject,
+          question: q.question,
+          options: [q.option_a, q.option_b, q.option_c, q.option_d],
+          correctAnswer: q.correct_answer - 1, // Convert 1-based to 0-based
+          difficulty: q.difficulty as 'easy' | 'medium' | 'hard'
+        }));
+      }
+      
+      // Shuffle and select questions
+      const shuffledQuestions = [...selectedQuestions].sort(() => Math.random() - 0.5);
+      const finalQuestions = shuffledQuestions.slice(0, Math.min(6, shuffledQuestions.length)); // 6 for demo
     
-    const initialAnswers = selectedQuestions.map(q => ({
+      const initialAnswers = finalQuestions.map(q => ({
+        questionId: q.id,
+        selectedAnswer: null,
+        timeSpent: 0,
+        marked: false
+      }));
+
+      setTestState({
+        questions: finalQuestions,
+        answers: initialAnswers,
+        currentQuestion: 0,
+        timeRemaining: 3600,
+        isActive: true,
+        startTime: new Date()
+      });
+    } catch (error) {
+      console.error('Error loading questions:', error);
+      // Fallback to mock questions
+      const shuffledQuestions = [...mockQuestions].sort(() => Math.random() - 0.5);
+      const selectedQuestions = shuffledQuestions.slice(0, 6);
+      
+      const initialAnswers = selectedQuestions.map(q => ({
+        questionId: q.id,
+        selectedAnswer: null,
+        timeSpent: 0,
+        marked: false
+      }));
+
+      setTestState({
+        questions: selectedQuestions,
+        answers: initialAnswers,
+        currentQuestion: 0,
+        timeRemaining: 3600,
+        isActive: true,
+        startTime: new Date()
+      });
+    }
+  };
+
+  const submitTest = async () => {
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      // Calculate scores by subject
+      const subjectScores: { [key: string]: { correct: number; total: number } } = {};
+      
+      testState.answers.forEach((answer, index) => {
+        const question = testState.questions[index];
+        if (!question) return;
+        
+        const subject = question.subject;
+        if (!subjectScores[subject]) {
+          subjectScores[subject] = { correct: 0, total: 0 };
+        }
+        
+        subjectScores[subject].total++;
+        if (answer.selectedAnswer === question.correctAnswer) {
+          subjectScores[subject].correct++;
+        }
+      });
+
+      // Calculate duration
+      const duration = testState.startTime 
+        ? Math.floor((new Date().getTime() - testState.startTime.getTime()) / 1000)
+        : 0;
+
+      // Save results to Supabase for each subject
+      const testResults = Object.entries(subjectScores).map(([subject, scores]) => ({
+        email: user.email,
+        test_time: testState.startTime?.toISOString(),
+        subject: subject,
+        questions: JSON.stringify(testState.questions.filter(q => q.subject === subject)),
+        answers: JSON.stringify(testState.answers.filter((_, index) => 
+          testState.questions[index]?.subject === subject
+        )),
+        score: scores.total > 0 ? Math.round((scores.correct / scores.total) * 100) : 0,
+        duration_seconds: duration
+      }));
+
+      const { error } = await supabase
+        .from('test_results')
+        .insert(testResults);
+
+      if (error) {
+        console.error('Error submitting test:', error);
+        throw error;
+      }
+
+      endTest();
+    } catch (error) {
+      console.error('Error submitting test:', error);
+      throw error;
+    }
+  };
+
+  const submitTestOld = async () => {
+    try {
+      // Mock API call to submit test results
+      const testResults = {
+        answers: testState.answers,
+        startTime: testState.startTime,
+        endTime: new Date(),
+        totalQuestions: testState.questions.length
+      };
+      
+      console.log('Submitting test results:', testResults);
+      
+      // In production, this would be an API call
+      // await api.submitTest(testResults);
+      
+      endTest();
+    } catch (error) {
+      console.error('Error submitting test:', error);
+      throw error;
+    }
+  };
       questionId: q.id,
       selectedAnswer: null,
       timeSpent: 0,
