@@ -268,21 +268,6 @@ export const TestProvider: React.FC<TestProviderProps> = ({ children }) => {
       throw error;
     }
   };
-      questionId: q.id,
-      selectedAnswer: null,
-      timeSpent: 0,
-      marked: false
-    }));
-
-    setTestState({
-      questions: selectedQuestions,
-      answers: initialAnswers,
-      currentQuestion: 0,
-      timeRemaining: 3600,
-      isActive: true,
-      startTime: new Date()
-    });
-  };
 
   const endTest = () => {
     setTestState(prev => ({
@@ -328,28 +313,6 @@ export const TestProvider: React.FC<TestProviderProps> = ({ children }) => {
       ...prev,
       currentQuestion: Math.max(prev.currentQuestion - 1, 0)
     }));
-  };
-
-  const submitTest = async () => {
-    try {
-      // Mock API call to submit test results
-      const testResults = {
-        answers: testState.answers,
-        startTime: testState.startTime,
-        endTime: new Date(),
-        totalQuestions: testState.questions.length
-      };
-      
-      console.log('Submitting test results:', testResults);
-      
-      // In production, this would be an API call
-      // await api.submitTest(testResults);
-      
-      endTest();
-    } catch (error) {
-      console.error('Error submitting test:', error);
-      throw error;
-    }
   };
 
   const value: TestContextType = {
