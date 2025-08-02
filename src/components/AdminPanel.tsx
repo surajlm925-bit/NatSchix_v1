@@ -22,6 +22,7 @@ const AdminPanel: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [questions, setQuestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const tabs = [
     { id: 'overview', name: 'Overview', icon: BarChart3 },
@@ -31,68 +32,25 @@ const AdminPanel: React.FC = () => {
     { id: 'settings', name: 'Settings', icon: Settings }
   ];
 
-  const mockQuestions = [
-    {
-      id: 1,
-      subject: 'Math',
-      question: 'What is 15 × 8?',
-      difficulty: 'Easy',
-      correctAnswer: '120'
-    },
-    {
-      id: 2,
-      subject: 'Science',
-      question: 'What is the chemical symbol for gold?',
-      difficulty: 'Easy',
-      correctAnswer: 'Au'
-    },
-    {
-      id: 3,
-      subject: 'Reasoning',
-      question: 'What comes next in the sequence: 2, 6, 12, 20, ?',
-      difficulty: 'Medium',
-      correctAnswer: '30'
-    }
-  ];
-
-  const mockResults = [
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john@example.com',
-      testDate: '2025-01-14',
-      mathScore: 85,
-      scienceScore: 92,
-      reasoningScore: 78,
-      totalScore: 85,
-      duration: '102 min'
-    },
-    {
-      id: 2,
-      name: 'Jane Smith',
-      email: 'jane@example.com',
-      testDate: '2025-01-14',
-      mathScore: 94,
-      scienceScore: 88,
-      reasoningScore: 91,
-      totalScore: 91,
-      duration: '95 min'
-    }
-  ];
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    testsCompleted: 0,
+    questionsBank: 0,
+    avgScore: 0
+  });
 
   const loadResults = async () => {
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase
         .from('test_results')
-        .select(`
-          *,
-          registrations!inner(first_name, last_name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error loading results:', error);
+        setError('Failed to load test results');
         return;
       }
 
@@ -104,7 +62,7 @@ const AdminPanel: React.FC = () => {
         if (!groupedResults[key]) {
           groupedResults[key] = {
             email: result.email,
-            name: `${result.registrations.first_name} ${result.registrations.last_name}`,
+            name: result.email.split('@')[0], // Use email prefix as name for now
             testDate: new Date(result.test_time).toLocaleDateString(),
             duration: `${Math.round(result.duration_seconds / 60)} min`,
             subjects: {}
@@ -123,6 +81,7 @@ const AdminPanel: React.FC = () => {
       setResults(finalResults);
     } catch (error) {
       console.error('Error loading results:', error);
+      setError('Failed to load test results');
     } finally {
       setLoading(false);
     }
@@ -130,6 +89,7 @@ const AdminPanel: React.FC = () => {
 
   const loadUsers = async () => {
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase
         .from('registrations')
@@ -138,6 +98,7 @@ const AdminPanel: React.FC = () => {
 
       if (error) {
         console.error('Error loading users:', error);
+        setError('Failed to load users');
         return;
       }
 
@@ -153,6 +114,7 @@ const AdminPanel: React.FC = () => {
       setUsers(formattedUsers);
     } catch (error) {
       console.error('Error loading users:', error);
+      setError('Failed to load users');
     } finally {
       setLoading(false);
     }
@@ -160,6 +122,7 @@ const AdminPanel: React.FC = () => {
 
   const loadQuestions = async () => {
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase
         .from('questions')
@@ -168,14 +131,49 @@ const AdminPanel: React.FC = () => {
 
       if (error) {
         console.error('Error loading questions:', error);
+        setError('Failed to load questions');
         return;
       }
 
       setQuestions(data || []);
     } catch (error) {
       console.error('Error loading questions:', error);
+      setError('Failed to load questions');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      // Load total users
+      const { count: usersCount } = await supabase
+        .from('registrations')
+        .select('*', { count: 'exact', head: true });
+
+      // Load total questions
+      const { count: questionsCount } = await supabase
+        .from('questions')
+        .select('*', { count: 'exact', head: true });
+
+      // Load test results for stats
+      const { data: resultsData } = await supabase
+        .from('test_results')
+        .select('score, email');
+
+      const testsCompleted = resultsData?.length || 0;
+      const avgScore = resultsData && resultsData.length > 0 
+        ? Math.round(resultsData.reduce((sum, result) => sum + result.score, 0) / resultsData.length)
+        : 0;
+
+      setStats({
+        totalUsers: usersCount || 0,
+        testsCompleted,
+        questionsBank: questionsCount || 0,
+        avgScore
+      });
+    } catch (error) {
+      console.error('Error loading stats:', error);
     }
   };
 
@@ -187,26 +185,10 @@ const AdminPanel: React.FC = () => {
       loadUsers();
     } else if (activeTab === 'questions') {
       loadQuestions();
+    } else if (activeTab === 'overview') {
+      loadStats();
     }
   }, [activeTab]);
-  const mockUsers = [
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john@example.com',
-      registrationDate: '2025-01-10',
-      status: 'Registered',
-      testsTaken: 1
-    },
-    {
-      id: 2,
-      name: 'Jane Smith',
-      email: 'jane@example.com',
-      registrationDate: '2025-01-12',
-      status: 'Registered',
-      testsTaken: 1
-    }
-  ];
 
   const renderOverview = () => (
     <div className="space-y-6">
@@ -216,7 +198,7 @@ const AdminPanel: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-blue-100">Total Users</p>
-              <p className="text-3xl font-bold">1,248</p>
+              <p className="text-3xl font-bold">{stats.totalUsers}</p>
             </div>
             <Users className="h-8 w-8 text-blue-200" />
           </div>
@@ -226,7 +208,7 @@ const AdminPanel: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-green-100">Tests Completed</p>
-              <p className="text-3xl font-bold">892</p>
+              <p className="text-3xl font-bold">{stats.testsCompleted}</p>
             </div>
             <Award className="h-8 w-8 text-green-200" />
           </div>
@@ -236,7 +218,7 @@ const AdminPanel: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-purple-100">Questions Bank</p>
-              <p className="text-3xl font-bold">2,156</p>
+              <p className="text-3xl font-bold">{stats.questionsBank}</p>
             </div>
             <FileText className="h-8 w-8 text-purple-200" />
           </div>
@@ -246,7 +228,7 @@ const AdminPanel: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-amber-100">Avg. Score</p>
-              <p className="text-3xl font-bold">84%</p>
+              <p className="text-3xl font-bold">{stats.avgScore}%</p>
             </div>
             <BarChart3 className="h-8 w-8 text-amber-200" />
           </div>
@@ -257,8 +239,8 @@ const AdminPanel: React.FC = () => {
       <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
         <h3 className="text-xl font-semibold text-gray-900 mb-4">Recent Test Submissions</h3>
         <div className="space-y-4">
-          {mockResults.slice(0, 5).map((result) => (
-            <div key={result.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+          {results.slice(0, 5).map((result, index) => (
+            <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
               <div className="flex items-center space-x-4">
                 <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
                   {result.name.charAt(0)}
@@ -274,6 +256,9 @@ const AdminPanel: React.FC = () => {
               </div>
             </div>
           ))}
+          {results.length === 0 && !loading && (
+            <p className="text-gray-500 text-center py-4">No test submissions yet</p>
+          )}
         </div>
       </div>
     </div>
@@ -295,6 +280,18 @@ const AdminPanel: React.FC = () => {
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mx-auto mb-2"></div>
+          <p className="text-gray-600">Loading questions...</p>
+        </div>
+      )}
       <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -307,7 +304,7 @@ const AdminPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {(questions.length > 0 ? questions : mockQuestions).map((question) => (
+              {questions.map((question) => (
                 <tr key={question.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
@@ -317,11 +314,11 @@ const AdminPanel: React.FC = () => {
                   <td className="px-6 py-4 text-gray-900 max-w-md truncate">{question.question}</td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      question.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
-                      question.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                      question.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
+                      question.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-red-100 text-red-800'
                     }`}>
-                      {question.difficulty}
+                      {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -339,6 +336,13 @@ const AdminPanel: React.FC = () => {
                   </td>
                 </tr>
               ))}
+              {questions.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    No questions found. Add some questions to get started.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -355,6 +359,12 @@ const AdminPanel: React.FC = () => {
           <span>Export CSV</span>
         </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
 
       {loading && (
         <div className="text-center py-8">
@@ -378,7 +388,7 @@ const AdminPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {(results.length > 0 ? results : mockResults).map((result, index) => (
+              {results.map((result, index) => (
                 <tr key={result.id || index} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div>
@@ -388,13 +398,13 @@ const AdminPanel: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-gray-900">{result.testDate}</td>
                   <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{result.Math || result.mathScore || 'N/A'}%</span>
+                    <span className="font-semibold text-gray-900">{result.Math || 'N/A'}%</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{result.Science || result.scienceScore || 'N/A'}%</span>
+                    <span className="font-semibold text-gray-900">{result.Science || 'N/A'}%</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{result.Reasoning || result.reasoningScore || 'N/A'}%</span>
+                    <span className="font-semibold text-gray-900">{result.Reasoning || 'N/A'}%</span>
                   </td>
                   <td className="px-6 py-4">
                     <span className={`font-semibold px-3 py-1 rounded-full text-sm ${
@@ -409,6 +419,13 @@ const AdminPanel: React.FC = () => {
                   <td className="px-6 py-4 text-gray-900">{result.duration}</td>
                 </tr>
               ))}
+              {results.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                    No test results found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -425,6 +442,12 @@ const AdminPanel: React.FC = () => {
           <span>Export Users</span>
         </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
 
       {loading && (
         <div className="text-center py-8">
@@ -446,7 +469,7 @@ const AdminPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {(users.length > 0 ? users : mockUsers).map((user) => (
+              {users.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div>
@@ -473,6 +496,13 @@ const AdminPanel: React.FC = () => {
                   </td>
                 </tr>
               ))}
+              {users.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                    No registered users found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
